@@ -69,7 +69,7 @@ jobs:
                               print(f"Info: Discovery feature: {buffer_line[:-1]}")
                               buffer[num] = re.sub(feature_code, patch_code, buffer_line)
                               patched = True
-                  if len(buffer) > 5:
+                  if len(buffer) > 1024:
                       mod.write(buffer[0])
                       del buffer[0]
               for line in buffer:
