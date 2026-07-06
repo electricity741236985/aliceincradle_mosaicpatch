@@ -2,7 +2,7 @@ name: Alice In Cradle Mosaic Patch
 
 on:
   push:
-  workflow_dispatch: # 增加手動觸發按鈕，方便你隨時在網頁點擊執行
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -12,17 +12,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Visual Studio 2022
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: '[17.0,18.0)'
-          
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13' 
           
-      # 步驟 1：將你上傳的 DLL 反編譯成文字格式的 .IL 檔
       - name: 1. Disassemble Assembly-CSharp.dll
         run: |
           $ildasm = "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\ildasm.exe"
@@ -32,7 +26,6 @@ jobs:
           }
           & $ildasm "${{ github.workspace }}\Assembly-CSharp.dll" /OUT="${{ github.workspace }}\dump.IL" /TEXT /NOBAR /UTF8
 
-      # 步驟 2：使用 Python 狀態機精準修補程式碼（已修復原版 Bug）
       - name: 2. Run Python Patch Script
         shell: python
         run: |
@@ -51,14 +44,11 @@ jobs:
 
           print("開始掃描並修補馬賽克代碼...")
           
-          # 逐行讀取與寫入，完美避開記憶體限制與緩衝區遺失問題
           with open(input_path, 'r', encoding='utf-8') as infile, open(output_path, 'w', encoding='utf-8') as outfile:
               for line in infile:
-                  # 偵測是否進入了繪製馬賽克的目標方法
                   if "FnDrawMosaic" in line:
                       inside_method = True
                   
-                  # 如果處於該方法內，且抓到了馬賽克開啟指令 (ldc.i4.1)，將其變更為關閉 (ldc.i4.0)
                   if inside_method and "ldc.i4.1" in line:
                       line = line.replace("ldc.i4.1", "ldc.i4.0")
                       patched = True
@@ -66,7 +56,6 @@ jobs:
                   
                   outfile.write(line)
                   
-                  # 偵測是否離開了該方法
                   if inside_method and "end of method MosaicShower::FnDrawMosaic" in line:
                       inside_method = False
 
@@ -76,7 +65,6 @@ jobs:
               print("Error: 未能找到馬賽克特徵碼，可能是遊戲版本不相符。")
               sys.exit(1)
 
-      # 步驟 3：將修改後的 .IL 檔重新正向編譯回二進位的 .dll 檔
       - name: 3. Reassemble DLL
         run: |
           $ilasm = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\ilasm.exe"
@@ -88,7 +76,6 @@ jobs:
             & $ilasm "${{ github.workspace }}\dump_mod.IL" /DLL /OUTPUT="${{ github.workspace }}\output\Assembly-CSharp.dll"
           }
 
-      # 步驟 4：將成品打包打包，供你下載
       - name: 4. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
