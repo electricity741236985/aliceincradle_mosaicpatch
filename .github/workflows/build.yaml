@@ -2,7 +2,6 @@ name: Alice In Cradle Mosaic Patch
 
 on:
   push:
-  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -12,73 +11,91 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Set up Visual Studio 2022
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
+          
+      - name: Set up Python3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13' 
           
-      - name: 1. Disassemble Assembly-CSharp.dll
+      - name: Patch Assembly-CSharp.dll
         run: |
+          
           $ildasm = "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\ildasm.exe"
-          if (-not (Test-Path "${{ github.workspace }}\Assembly-CSharp.dll")) {
-            Write-Error "Assembly-CSharp.dll not found in root directory!"
-            exit 1
-          }
-          & $ildasm "${{ github.workspace }}\Assembly-CSharp.dll" /OUT="${{ github.workspace }}\dump.IL" /TEXT /NOBAR /UTF8
-
-      - name: 2. Run Python Patch Script
-        env:
-          PYTHONUTF8: "1" # 強制 Python 終端機輸出使用 UTF-8 編碼
-        shell: python
-        run: |
-          import os
-          import sys
-
-          input_path = r"${{ github.workspace }}\dump.IL"
-          output_path = r"${{ github.workspace }}\dump_mod.IL"
-
-          if not os.path.exists(input_path):
-              print("Error: dump.IL file not found.")
-              sys.exit(1)
-
-          inside_method = False
-          patched = False
-
-          print("Start scanning and patching mosaic code...")
-          
-          with open(input_path, 'r', encoding='utf-8') as infile, open(output_path, 'w', encoding='utf-8') as outfile:
-              for line in infile:
-                  if "FnDrawMosaic" in line:
-                      inside_method = True
-                  
-                  if inside_method and "ldc.i4.1" in line:
-                      line = line.replace("ldc.i4.1", "ldc.i4.0")
-                      patched = True
-                      print("Info: Successfully located and modified mosaic switch (ldc.i4.1 -> ldc.i4.0)")
-                  
-                  outfile.write(line)
-                  
-                  if inside_method and "end of method MosaicShower::FnDrawMosaic" in line:
-                      inside_method = False
-
-          if patched:
-              print("Success: Patch applied successfully!")
-          else:
-              print("Error: Mosaic feature code not found. Version mismatch?")
-              sys.exit(1)
-
-      - name: 3. Reassemble DLL
-        run: |
           $ilasm = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\ilasm.exe"
-          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\output"
+
+          & $ildasm ${{ github.workspace }}\Assembly-CSharp.dll /OUT=${{ github.workspace }}\dump.IL /TEXT /NOBAR /UTF8
           
+          python3 -c @"
+          # ==================== Mosaic Patch Script(mosaic_patch.py) Start ====================
+          import sys
+          import re
+          import os
+          import time
+          
+          # env
+          func_end = r'\/\/ end of method MosaicShower::FnDrawMosaic'
+          
+          feature_code = r"ldc\.i4\.1"
+          patch_code = r"ldc.i4.0"
+          
+          # code
+          buffer = []
+          patched = False
+          
+          time_start = time.time()
+          
+          input_il = "Assembly-CSharp.IL"
+          output_il = "Assembly-CSharp_mod.IL"
+          
+          for arg in sys.argv:
+              if arg[:2] == "-i":
+                  input_il = arg[2:]
+              
+              if arg[:2] == "-o":
+                  output_il = arg[2:]
+              
+          if not os.path.exists(input_il):
+              print(f"\nError: {input_il} not found.\n\n       Useage:  python3 mosaic_patch.py -iAssembly-CSharp.IL -oAssembly-CSharp_mod.IL")
+              sys.exit(1)
+          
+          with open(input_il, 'r', encoding='utf-8') as vanilla, open(output_il, 'w', encoding='utf-8') as mod:
+              for line in vanilla:
+                  buffer.append(line)
+                  if re.search(func_end, line):
+                      for num, buffer_line in enumerate(buffer):
+                          if re.search(feature_code, buffer_line):
+                              print(f"Info: Discovery feature: {buffer_line[:-1]}")
+                              buffer[num] = re.sub(feature_code, patch_code, buffer_line)
+                              patched = True
+                  if len(buffer) > 5:
+                      mod.write(buffer[0])
+                      del buffer[0]
+              for line in buffer:
+                mod.write(line)
+              if patched:
+                  print("Info: Patched Success!")
+              else:
+                  print("Error: Patched Failed.")
+                  sys.exit(1)
+          time_end = time.time()
+          time_c= time_end - time_start
+          
+          print('Info: Time cost: {:.2f}s'.format(time_c))
+          # ==================== Mosaic Patch Script Stop ====================
+          "@ "-i${{ github.workspace }}\dump.IL" "-o${{ github.workspace }}\dump_mod.IL"
+          
+          mkdir ${{ github.workspace }}\output
           if (Test-Path "${{ github.workspace }}\dump.res") {
-            & $ilasm "${{ github.workspace }}\dump_mod.IL" /RESOURCE="${{ github.workspace }}\dump.res" /DLL /OUTPUT="${{ github.workspace }}\output\Assembly-CSharp.dll"
+            & $ilasm ${{ github.workspace }}\dump_mod.IL /RESOURCE=${{ github.workspace }}\dump.res /DLL /OUTPUT=${{ github.workspace }}\output\Assembly-CSharp.dll
           } else {
-            & $ilasm "${{ github.workspace }}\dump_mod.IL" /DLL /OUTPUT="${{ github.workspace }}\output\Assembly-CSharp.dll"
+            & $ilasm ${{ github.workspace }}\dump_mod.IL /DLL /OUTPUT=${{ github.workspace }}\output\Assembly-CSharp.dll
           }
 
-      - name: 4. Upload Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mosaic Patched DLL
