@@ -21,12 +21,14 @@ jobs:
         run: |
           $ildasm = "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\ildasm.exe"
           if (-not (Test-Path "${{ github.workspace }}\Assembly-CSharp.dll")) {
-            Write-Error "在根目錄找不到 Assembly-CSharp.dll！請確認你已經將遊戲檔案上傳上來。"
+            Write-Error "Assembly-CSharp.dll not found in root directory!"
             exit 1
           }
           & $ildasm "${{ github.workspace }}\Assembly-CSharp.dll" /OUT="${{ github.workspace }}\dump.IL" /TEXT /NOBAR /UTF8
 
       - name: 2. Run Python Patch Script
+        env:
+          PYTHONUTF8: "1" # 強制 Python 終端機輸出使用 UTF-8 編碼
         shell: python
         run: |
           import os
@@ -42,7 +44,7 @@ jobs:
           inside_method = False
           patched = False
 
-          print("開始掃描並修補馬賽克代碼...")
+          print("Start scanning and patching mosaic code...")
           
           with open(input_path, 'r', encoding='utf-8') as infile, open(output_path, 'w', encoding='utf-8') as outfile:
               for line in infile:
@@ -52,7 +54,7 @@ jobs:
                   if inside_method and "ldc.i4.1" in line:
                       line = line.replace("ldc.i4.1", "ldc.i4.0")
                       patched = True
-                      print("Info: 成功定位並修改馬賽克開關 (ldc.i4.1 -> ldc.i4.0)")
+                      print("Info: Successfully located and modified mosaic switch (ldc.i4.1 -> ldc.i4.0)")
                   
                   outfile.write(line)
                   
@@ -60,9 +62,9 @@ jobs:
                       inside_method = False
 
           if patched:
-              print("Success: 補丁修改成功！")
+              print("Success: Patch applied successfully!")
           else:
-              print("Error: 未能找到馬賽克特徵碼，可能是遊戲版本不相符。")
+              print("Error: Mosaic feature code not found. Version mismatch?")
               sys.exit(1)
 
       - name: 3. Reassemble DLL
